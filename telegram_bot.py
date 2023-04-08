@@ -154,8 +154,14 @@ async def link_discord(message: types.Message):
                             'Отвязать дискорд сервер:\n'
                             '/undiscord')
     if not db.get(GUILDS, ds_guild_id).TG_LINK_WATING_GROUP_ID and not db.get(GUILDS, ds_guild_id).TG_LINK_WATING_CHANNEL_ID:
-        #отправить приглашение создать чат
-        return
+         await message.reply(f"На данный момент у вас нет вхожящих\n"
+                             f"запросов на создание общего дискорд-телеграм чата.\n"
+                             f"Если желаете установить двустороннее соединение\n"
+                             f"с дискорд сервером, попросите его администратора\n"
+                             f"отправить вам запрос на создание общего\n"
+                             f"дискорд-телеграм чата.\n\n"
+                             f"Id данной телеграм группы: {message.chat.id}")
+         return
     else:
         try:
             guild_object = db.get(GUILDS, ds_guild_id)
@@ -323,12 +329,40 @@ async def resend(message: types.Message):
                     webhook = SyncWebhook.from_url(db.get(WEBHOOKS, (db.get(GROUPS, str(message.chat.id)).LINKED_CHANNEL_ID)).WEBHOOK_URL)
                     webhook.send(content=text,
                                  username=f'{message.from_user.first_name}〔TG〕',
-                                 avatar_url="https://logos-download.com/wp-content/uploads/2016/07/Telegram_2.x_version_2014_Logo.png", files=files)
+                                 avatar_url="https://logos-download.com/wp-content/uploads/2016/07/Telegram_2.x_version_2014_Logo.png",
+                                 files=files)
             except Exception as e:
-                print(e)
+                await message.answer(f"Если вы видите данное сообщение,\n"
+                                     f"значит произошла программная ошибка,\n"
+                                     f"из за которой сообщение не было доставлено\n"
+                                     f"в дискорд канал, связанный с данной группой\.\n\n"
+                                     f"Приносим свои извинения за произошедшее, отчёт\n"
+                                     f"о сбое уже оправлен разработчикам для\n"
+                                     f"вяснения причин и устранения неполадок\."
+                                     f"Если данная ошибка стала появляться регулярно,\n"
+                                     f"воспользуйтесь /undiscord , а затем перенастройте связь\n"
+                                     f"с дискород-сервером с помощью /discord"
+                                     f"Код ошибки:\n"
+                                     f"```{e}```", parse_mode="'MarkdownV2")
+                print(f"АХТУНГ!!! АХТУНГ!!! АХТУНГ!!!\n"
+                      f"сбой в работе ds-tg канала (ошибка вебхука). Код ошибки:\n"
+                      f"{e}")
         except Exception as e:
-            print(e)
-
+            await message.answer(f"Если вы видите данное сообщение,\n"
+                                 f"значит произошла программная ошибка,\n"
+                                 f"из за которой сообщение не было доставлено\n"
+                                 f"в дискорд канал, связанный с данной группой\.\n\n"
+                                 f"Приносим свои извинения за произошедшее, отчёт\n"
+                                 f"о сбое уже оправлен разработчикам для\n"
+                                 f"вяснения причин и устранения неполадок\."
+                                 f"Если данная ошибка стала появляться регулярно,\n"
+                                 f"воспользуйтесь /undiscord , а затем перенастройте связь\n"
+                                 f"с дискород-сервером с помощью /discord"
+                                 f"Код ошибки:\n"
+                                 f"```{e}```", parse_mode="'MarkdownV2")
+            print(f"АХТУНГ!!! АХТУНГ!!! АХТУНГ!!!\n"
+                  f"сбой в работе ds-tg канала. Код ошибки:\n"
+                  f"{e}")
 def ready():
     print('Telegram-bot started successfully!')
 
