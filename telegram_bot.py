@@ -13,10 +13,8 @@ import threading
 from db_import import db, GROUPS, GUILDS, LINKED, TG_LINKED, WEBHOOKS
 from tokens import TG_TOKEN
 
-
 if not os.path.isdir("tempdata"):
     os.mkdir("tempdata")
-
 
 access_error = 'Для данного действия необходимо обладать\nправами администратора телеграм-группы!'
 bot = Bot(token=TG_TOKEN)
@@ -49,7 +47,6 @@ async def unlink_discord(message: types.Message):
         await sleep(5)
         await respond.delete()
         return
-
 
     if db.get(GROUPS, str(message.chat.id)).LINKED_CHANNEL_ID:
         buttons = [
@@ -129,11 +126,14 @@ async def link_discord(message: types.Message):
                             'на целевой дискорд сервер.\n'
                             'Ссылка для приглашения дискорд бота:'
                             'https://discord.com/api/oauth2/authorize?client_id=1088509697524519115&permissions=8&scope=bot%20applications.commands\n\n'
-                            'Затем необходимо узнать id дискорд сервера,\n'
-                            'где находится канал, а затем\n'
+                            'После этого, с дискорд сервера необходимо отправить\n'
+                            'приглашение на создание общего чата при помощи команды\n'
+                            '/link_telegram , использованной в дискорд сервере.\n\n'
+                            'После того, как приглашение создать общий чат придёт\n'
+                            'в эту телеграм-группу, необходимо узнать id\n'
+                            'дискорд сервера,где находится канал, а затем\n'
                             'использовать команду /discord [id дисокрд сервера]\n'
-                            'Чтобы отправить приглашение создать общий чат \n'
-                            'или завершить привязку.\n'
+                            'Чтобы завершить привязку.\n'
                             'Пример использования команды:\n\n'
                             '/discord 10832845374377255078\n\n'
                             '(узнать id дискорд сервера можно с помощью команды /id\n'
@@ -153,15 +153,16 @@ async def link_discord(message: types.Message):
                             'Эта группа уже связанна с дискорд сервером!\n\n'
                             'Отвязать дискорд сервер:\n'
                             '/undiscord')
-    if not db.get(GUILDS, ds_guild_id).TG_LINK_WATING_GROUP_ID and not db.get(GUILDS, ds_guild_id).TG_LINK_WATING_CHANNEL_ID:
-         await message.reply(f"На данный момент у вас нет вхожящих\n"
-                             f"запросов на создание общего дискорд-телеграм чата.\n"
-                             f"Если желаете установить двустороннее соединение\n"
-                             f"с дискорд сервером, попросите его администратора\n"
-                             f"отправить вам запрос на создание общего\n"
-                             f"дискорд-телеграм чата.\n\n"
-                             f"Id данной телеграм группы: {message.chat.id}")
-         return
+    if not db.get(GUILDS, ds_guild_id).TG_LINK_WATING_GROUP_ID and not db.get(GUILDS,
+                                                                              ds_guild_id).TG_LINK_WATING_CHANNEL_ID:
+        await message.reply(f"На данный момент у вас нет вхожящих\n"
+                            f"запросов на создание общего дискорд-телеграм чата.\n"
+                            f"Если желаете установить двустороннее соединение\n"
+                            f"с дискорд сервером, попросите его администратора\n"
+                            f"отправить вам запрос на создание общего\n"
+                            f"дискорд-телеграм чата.\n\n"
+                            f"Id данной телеграм группы: {message.chat.id}")
+        return
     else:
         try:
             guild_object = db.get(GUILDS, ds_guild_id)
@@ -200,34 +201,51 @@ async def link_discord(message: types.Message):
 
 @dp.message_handler(commands=['id', 'айди', 'ID', 'Id', 'iD'])
 async def group_id(message: types.Message):
-    await message.reply(f"Айди данной телеграмм группы:\n\n{message.chat.id}\n\nВнимание! Минус перед цифрами (если он есть)\nтак же является частью id!")
+    await message.reply(
+        f"Айди данной телеграмм группы:\n\n{message.chat.id}\n\nВнимание! Минус перед цифрами (если он есть)\nтак же является частью id!")
 
 
 @dp.message_handler(content_types=['new_chat_members'])
-async def new_group(message: types.Message):
+async def join_group(message: types.Message):
     bot_object = await bot.get_me()
+    chat_id = str(message.chat.id)
     for chat_member in message.new_chat_members:
-        if chat_member.id == bot_object.id:
-            GROUP = GROUPS(GROUP_ID=str(message.chat.id))
+        if chat_member.id == bot_object.id and not db.get(GROUPS, chat_id):
+            GROUP = GROUPS(GROUP_ID=chat_id)
             db.add(GROUP)
             db.commit()
-            print("Телеграм бот стал членом группы с айди:   " + str(message.chat.id))
+    print(f"Телеграм бот стал членом группы с айди:   {chat_id}")
+
+
+@dp.message_handler(content_types=['left_chat_member'])
+async def leave_group(message: types.Message):
+    bot_object = await bot.get_me()
+    chat_id = str(message.chat.id)
+    if message.left_chat_member.id == bot_object.id and db.get(GROUPS, chat_id):
+        db.delete(db.get(GROUPS, chat_id))
+
+        if db.get(TG_LINKED, chat_id):
+            channel_id = db.get(TG_LINKED, chat_id).LINKED_CHANNEL_ID
+            db.delete(db.get(TG_LINKED, chat_id))
+            db.delete(db.get(TG_LINKED, channel_id))
+        if db.get(WEBHOOKS, channel_id):
+            db.delete(db.get(WEBHOOKS, channel_id))
+        for guild_object in db.query(GUILDS).all():
+            if guild_object.TG_LINKED_CHANNELS_ID and channel_id in guild_object.TG_LINKED_CHANNELS_ID.split(':'):
+                if ':' in guild_object.TG_LINKED_CHANNELS_ID:
+                    channels_list = guild_object.TG_LINKED_CHANNELS_ID.split(":")
+                    channels_list.remove(channel_id)
+                    guild_object.TG_LINKED_CHANNELS_ID = ":".join(channels_list)
+                else:
+                    guild_object.TG_LINKED_CHANNELS_ID = None
+                    db.add(guild_object)
+                break
+        db.commit()
+    print(f"Телеграм бот покинул группу с айди:   {chat_id}")
 
 
 @dp.message_handler(content_types=types.ContentTypes.ANY)
 async def resend(message: types.Message):
-    # await UserState.chatgpt.set()
-    # subprocess.call(["python", "discord_bot.py", str(message.text)])
-
-    # photos = await message.from_user.get_profile_photos()
-    # if photos['total_count'] > 0:
-    #     file = await bot.get_file(photos['photos'][0][0]['file_id'])
-    #     # await bot.download_file(file.file_path, 'test.png')
-    #     avatar = f"https://api.telegram.org/file/bot{TG_TOKEN}/{file.file_path}"
-    #     print(avatar)
-    #     print(file.file_path)
-    # print(avatar)
-
     if not db.get(GROUPS, str(message.chat.id)):
         return
     if db.get(GROUPS, str(message.chat.id)).LINKED_CHANNEL_ID:
@@ -264,8 +282,10 @@ async def resend(message: types.Message):
                     await respond.delete()
                 else:
                     file = await bot.get_file(message.photo[-1]["file_id"])
-                    await bot.download_file(file.file_path, f'tempdata/{message.photo[-1].file_unique_id}.{file.file_path.split(".")[-1]}')
-                    files.append(discord.File(f'tempdata/{message.photo[-1].file_unique_id}.{file.file_path.split(".")[-1]}'))
+                    await bot.download_file(file.file_path,
+                                            f'tempdata/{message.photo[-1].file_unique_id}.{file.file_path.split(".")[-1]}')
+                    files.append(
+                        discord.File(f'tempdata/{message.photo[-1].file_unique_id}.{file.file_path.split(".")[-1]}'))
                 text = message.caption
             elif message.video:
                 if message.video.file_size >= 8388608:
@@ -284,8 +304,10 @@ async def resend(message: types.Message):
                     await respond.delete()
                 else:
                     file = await bot.get_file(message.video_note.file_id)
-                    await bot.download_file(file.file_path, f'tempdata/videomessage_from_{message.from_user.first_name}.{file.file_path.split(".")[-1]}')
-                    files.append(discord.File(f'tempdata/videomessage_from_{message.from_user.first_name}.{file.file_path.split(".")[-1]}'))
+                    await bot.download_file(file.file_path,
+                                            f'tempdata/videomessage_from_{message.from_user.first_name}.{file.file_path.split(".")[-1]}')
+                    files.append(discord.File(
+                        f'tempdata/videomessage_from_{message.from_user.first_name}.{file.file_path.split(".")[-1]}'))
             elif message.animation:
                 if message.animation.file_size >= 8388608:
                     respond = await message.reply(file_size_error)
@@ -317,16 +339,15 @@ async def resend(message: types.Message):
                     if file.file_path.endswith('tgs'):
                         pass
                     else:
-                        await bot.download_file(file.file_path, f'tempdata/{message.sticker.file_unique_id}.{file.file_path.split(".")[-1]}')
-                        files.append(discord.File(f'tempdata/{message.sticker.file_unique_id}.{file.file_path.split(".")[-1]}'))
+                        await bot.download_file(file.file_path,
+                                                f'tempdata/{message.sticker.file_unique_id}.{file.file_path.split(".")[-1]}')
+                        files.append(
+                            discord.File(f'tempdata/{message.sticker.file_unique_id}.{file.file_path.split(".")[-1]}'))
                 text = message.caption
-
-            # webhook.send(content=..., *, username=..., avatar_url=..., tts=False, ephemeral=False,
-            #              file=..., files=..., embed=..., embeds=..., allowed_mentions=..., view=...,
-            #              thread=..., thread_name=..., wait=False, suppress_embeds=False, silent=False)
             try:
                 if text or files:
-                    webhook = SyncWebhook.from_url(db.get(WEBHOOKS, (db.get(GROUPS, str(message.chat.id)).LINKED_CHANNEL_ID)).WEBHOOK_URL)
+                    webhook = SyncWebhook.from_url(
+                        db.get(WEBHOOKS, (db.get(GROUPS, str(message.chat.id)).LINKED_CHANNEL_ID)).WEBHOOK_URL)
                     webhook.send(content=text,
                                  username=f'{message.from_user.first_name}〔TG〕',
                                  avatar_url="https://logos-download.com/wp-content/uploads/2016/07/Telegram_2.x_version_2014_Logo.png",
@@ -363,6 +384,8 @@ async def resend(message: types.Message):
             print(f"АХТУНГ!!! АХТУНГ!!! АХТУНГ!!!\n"
                   f"сбой в работе ds-tg канала. Код ошибки:\n"
                   f"{e}")
+
+
 def ready():
     print('Telegram-bot started successfully!')
 
@@ -375,6 +398,7 @@ def clearing():
             os.mkdir("tempdata")
         except:
             continue
+
 
 t = threading.Thread(target=clearing, daemon=True)
 t.start()

@@ -8,13 +8,54 @@ from discord import Option
 from discord.ext import commands
 from db_import import db, GROUPS, GUILDS, LINKED, TG_LINKED, WEBHOOKS
 from tokens import DS_TOKEN, TG_TOKEN
+from commands import commands_info
 
-COMMAND_LIST = "```Общее:``` \n" \
-               "`!hey`  -  проверить, жив ли я.\n" \
-               "`/help`  -  список команд.\n"
- \
-bot = commands.Bot(command_prefix='!', intents=discord.Intents.all(), help_command=None)
+COMMAND_LIST = \
+    """
+    `r!hey` - проверить, жив ли я
+    `r!mute` - отправить участника в таймаут
+    `r!unmute` - снять таймаут с участника
+    `r!clear` - очистить выбранное кол-во сообщений
+    `r!post` - создать эмбед по json-шаблону
+    
+    `/help`
+    `/stats` - получить статистику пользователя
+    `/weather` - прогноз погоды на 5 дней
+    `/id` - список id всех каналов сервера
+    `/post_help` - инструкция по созданию эмбедов
+    `/link_discord` - общий канал с другим дискорд сервером
+    `/link_telegram` - общий канал с телеграм-группой
+    `/unlink_telegram` - отвязать телеграмм   
+    """
+
+bot = commands.Bot(command_prefix='r!', intents=discord.Intents.all(), help_command=None)
 BOT_IS_READY = False
+
+
+@bot.slash_command(name='help', description='обзор фукнционала бота')
+async def help(ctx,
+               command: Option(str, description="Выберите команду, чтобы познакомиться с ней поближе",
+                               choices=["r!mute", "r!unmute", "r!clear", "r!post",
+                                        "/help", "/stats", "/weather", "/id", "/post_help",
+                                        "/link_discord", "/link_telegram", "/unlink_telegram"],
+                               required=False)):
+    if not command:
+        embed = discord.Embed(title="` Список доступных команд `",
+                              description=f"```Основной задачей бота является\n"
+                                          f"простое и доступное каждому объединение\n"
+                                          f"телеграм-группы и дискорд канала в один чат.\n"
+                                          f"Также, бот позволяет создавать общие каналы\n"
+                                          f"между дружескими дискорд серверами.```\n"
+                                          f"**Используйте `/help название_команды` , чтобы\n"
+                                          f"узнать больше об интересующей команде.**\n"
+                                          f"{COMMAND_LIST}",
+                              color=0x1e1f22)
+        await ctx.respond(embed=embed)
+    else:
+        embed = discord.Embed(title=f"` {command} `",
+                              description=commands_info[command],
+                              color=0x1e1f22)
+        await ctx.respond(embed=embed, ephemeral=True, delete_after=450)
 
 
 @bot.event
@@ -127,33 +168,40 @@ async def on_message(message):
                     if len(message.embeds) > 0 and 'https://' not in message.content and 'http://' not in message.content:
                         message_embeds = message.embeds
                     await webhook.send(message.content,
-                                       username=f"{message.author.name} ({message.author.guild.name})",
+                                       username=f"{message.author.name}〔{message.author.guild.name}〕",
                                        avatar_url=message.author.avatar, files=message_files, embeds=message_embeds)
                 except:
                     if not bot.get_channel(int(channel)):
-                        for o in db.query(LINKED).all():
-                            if channel == o.CHANNEL_ID:
-                                db.delete(o)
-                                db.commit()
-                            if channel in o.LINKED_CHANNELS_ID:
-                                channels = o.LINKED_CHANNELS_ID.split(":")
-                                channels.remove(channel)
-                                o.LINKED_CHANNELS_ID = ":".join(channels)
-                                if not o.LINKED_CHANNELS_ID:
-                                    db.delete(o)
-                                    db.commit()
-                                else:
+                        for linked_channel_id in db.get(LINKED, channel).LINKED_CHANNELS_ID.split(':'):
+                            linked_channel = db.get(LINKED, linked_channel_id)
+                            channels = linked_channel.LINKED_CHANNELS_ID.split(":")
+                            channels.remove(channel)
+                            linked_channel.LINKED_CHANNELS_ID = ":".join(channels)
+                            if not linked_channel.LINKED_CHANNELS_ID:
+                                db.delete(linked_channel)
+                            else:
+                                db.add(linked_channel)
+                            db.commit()
+                            for o in db.query(GUILDS).all():
+                                if o.LINKED_CHANNELS_ID and linked_channel_id in o.LINKED_CHANNELS_ID:
+                                    if not db.get(LINKED, linked_channel_id):
+                                        channels = o.LINKED_CHANNELS_ID.split(":")
+                                        channels.remove(linked_channel_id)
+                                        o.LINKED_CHANNELS_ID = ":".join(channels)
+                                        if not o.LINKED_CHANNELS_ID:
+                                            o.LINKED_CHANNELS_ID = None
+                                        db.add(o)
+                                        db.commit()
+                                if o.LINKED_CHANNELS_ID and channel in o.LINKED_CHANNELS_ID:
+                                    channels = o.LINKED_CHANNELS_ID.split(":")
+                                    channels.remove(channel)
+                                    o.LINKED_CHANNELS_ID = ":".join(channels)
+                                    if not o.LINKED_CHANNELS_ID:
+                                        o.LINKED_CHANNELS_ID = None
                                     db.add(o)
                                     db.commit()
-                        for o in db.query(GUILDS).all():
-                            if channel in o.LINKED_CHANNELS_ID:
-                                channels = o.LINKED_CHANNELS_ID.split(":")
-                                channels.remove(channel)
-                                o.LINKED_CHANNELS_ID = ":".join(channels)
-                                if not o.LINKED_CHANNELS_ID:
-                                    o.LINKED_CHANNELS_ID = None
-                                db.add(o)
-                                db.commit()
+                        db.delete(db.get(LINKED, channel))
+                        db.commit()
 
     if len(message.content) >= 6 and message.content[:6] == 'r!post':
         if not message.author.guild_permissions.manage_messages:
@@ -161,7 +209,7 @@ async def on_message(message):
                                   description='**Вам необходимо обладать правом на "управление сообщениями"**\n'
                                               '**Что бы использовать эту команду.**\n'
                                               '**Подробнее о том, как создавать эмбеды:**\n'
-                                              '`/post_embed`',
+                                              '`/post_help`',
                                   color=0xff0000)
             await message.channel.send(embed=embed, delete_after=15.0)
             return
@@ -172,7 +220,7 @@ async def on_message(message):
                                           description='**` Неверный формат вложений. `**\n'
                                                       '**Embed может содержать только изображения!**\n'
                                                       '**Подробнее о том, как создавать эмбеды:**\n'
-                                                      '`/post_embed`',
+                                                      '`/post_help`',
                                           color=0xff0000)
                     await message.delete()
                     await message.channel.send(embed=embed, delete_after=15.0)
@@ -184,6 +232,8 @@ async def on_message(message):
             embeds = []
             embed_index = 0
             for embed_dict in embeds_data:
+                title = None
+                description = None
                 if "title" in embed_dict.keys():
                     title = embed_dict["title"]
                 if "text" in embed_dict.keys():
@@ -197,8 +247,8 @@ async def on_message(message):
                     embed.set_footer(text=embed_dict["footer"])
                 if "smallimage" in embed_dict.keys():
                     embed.set_thumbnail(url=embed_dict["smallimage"])
-                if "limage" in embed_dict.keys():
-                    embed.set_image(url=embed_dict["limage"])
+                if "image" in embed_dict.keys():
+                    embed.set_image(url=embed_dict["image"])
                 if message.attachments:
                     if embed_index < len(message.attachments):
                         embed.set_image(url=((message.attachments[embed_index]).url))
@@ -214,26 +264,55 @@ async def on_message(message):
             await webhook.send(username=name, avatar_url=avatar, embeds=embeds)
             await webhook.delete()
         except Exception as e:
+            print(e)
             await message.delete()
             embed = discord.Embed(title='**` ОШИБКА! `**',
                                   description='**Неверный Json формат!**\n'
                                               '**Подробнее о том, как создавать эмбеды:**\n'
-                                              '`/post_embed`',
+                                              '`/post_help`',
                                   color=0xff0000)
             await message.channel.send(embed=embed, delete_after=7.0)
+    await bot.process_commands(message)
 
 
-@bot.slash_command(name='post_embed', description='test')
-async def post_embed(ctx):
-    await ctx.respond("Скоро здесь будет текст! Ура!", ephemeral=True)
+@bot.slash_command(name='post_help', description='подробное руководство по созданию эмбед-сообщений')
+async def post_help(ctx):
+    embed = discord.Embed(title='**` Полное руководство по эмбед-сообщениям `**',
+                          description=commands_info["full_embed_tutorial"],
+                          color=0x1e1f22)
+    await ctx.respond(embed=embed)
 
 
-@bot.slash_command(name='link_guild', description='Создать общий чат с другим дисокрд сервером')
+@bot.slash_command(name='link_discord', description='Создать общий чат с другим дисокрд сервером')
 @discord.ext.commands.has_guild_permissions(administrator=True)
-async def link_guild(ctx,
-                     guild_id: Option(str, description="Введите id дискорд сервера: ", required=True),
-                     channel: Option(str, description="Введите id канала, который станет общим чатом: ",
-                                     required=True)):
+async def link_discord(ctx,
+                       guild_id: Option(str, description="Введите id дискорд сервера: ", required=True),
+                       channel: Option(str, description="Введите id канала, который станет общим чатом: ",
+                                       required=True)):
+    if not bot.get_guild(int(guild_id)) or not bot.get_channel(int(channel)):
+        embed = discord.Embed(title="**` ОШИБКА! `**",
+                              description=f"**Некорректный дискорд сервер или\n"
+                                          f"указан несуществующий канал.\n\n"
+                                          f"Если вы уверены, что данные введены\n"
+                                          f"правильно, пожалуйста, убедитесь в том,\n"
+                                          f"что {bot.user.mention} установлен\n"
+                                          f" на обоих дискорд серверах.**",
+                              color=0xff0000)
+        await ctx.respond(embed=embed, ephemeral=True)
+        return
+    if db.get(GUILDS, str(ctx.guild.id)).LINKED_CHANNELS_ID and \
+            len(db.get(GUILDS, str(ctx.guild.id)).LINKED_CHANNELS_ID.split(':')) >= 3:
+        embed = discord.Embed(title="**` ОШИБКА! `**",
+                              description=f"**` У вас уже есть 3 общих чата с другими серверами! `**\n"
+                                          f"**Максимальное количество каналов для одного сервера,\n"
+                                          f"связанных с другими дискорд серверами сотавляет __3 канала__.\n"
+                                          f"Удалите один из 3 cross-server каналов,\n"
+                                          f"если хотите привязать новый!**\n\n"
+                                          f"__*(Информация о всех общих чатах: /serverinfo)*__",
+                              color=0xff0000)
+        await ctx.respond(embed=embed, ephemeral=True)
+        return
+
     if not bot.get_guild(int(guild_id)).system_channel:
         embed = discord.Embed(title="**` ОШИБКА! `**",
                               description=f"**На дискорд сервере `{bot.get_guild(int(guild_id)).name}`\n"
@@ -242,36 +321,43 @@ async def link_guild(ctx,
                                           f"дискорд сервера `{bot.get_guild(int(guild_id)).name}`\n"
                                           f"необходимо выбрать канал для системных сообщений.\n"
                                           f"Сделать это можно в настройках дисокрд сервера,\n"
-                                          f"в разделе «Общее».**",
+                                          f"в разделе «Обзор».**",
                               color=0xff0000)
         await ctx.respond(embed=embed, ephemeral=True)
         return
     if db.get(LINKED, channel):
         for channel_ in (db.get(LINKED, channel).LINKED_CHANNELS_ID).split(":"):
             if not bot.get_channel(int(channel_)):
-                for o in db.query(LINKED).all():
-                    if channel_ == o.CHANNEL_ID:
-                        db.delete(o)
-                        db.commit()
-                    if channel_ in o.LINKED_CHANNELS_ID:
-                        channels = o.LINKED_CHANNELS_ID.split(":")
-                        channels.remove(channel_)
-                        o.LINKED_CHANNELS_ID = ":".join(channels)
-                        if not o.LINKED_CHANNELS_ID:
-                            db.delete(o)
-                            db.commit()
-                        else:
+                for linked_channel_id in db.get(LINKED, channel_).LINKED_CHANNELS_ID.split(':'):
+                    linked_channel = db.get(LINKED, linked_channel_id)
+                    channels = linked_channel.LINKED_CHANNELS_ID.split(":")
+                    channels.remove(channel_)
+                    linked_channel.LINKED_CHANNELS_ID = ":".join(channels)
+                    if not linked_channel.LINKED_CHANNELS_ID:
+                        db.delete(linked_channel)
+                    else:
+                        db.add(linked_channel)
+                    db.commit()
+                    for o in db.query(GUILDS).all():
+                        if o.LINKED_CHANNELS_ID and linked_channel_id in o.LINKED_CHANNELS_ID:
+                            if not db.get(LINKED, linked_channel_id):
+                                channels = o.LINKED_CHANNELS_ID.split(":")
+                                channels.remove(linked_channel_id)
+                                o.LINKED_CHANNELS_ID = ":".join(channels)
+                                if not o.LINKED_CHANNELS_ID:
+                                    o.LINKED_CHANNELS_ID = None
+                                db.add(o)
+                                db.commit()
+                        if o.LINKED_CHANNELS_ID and channel_ in o.LINKED_CHANNELS_ID:
+                            channels = o.LINKED_CHANNELS_ID.split(":")
+                            channels.remove(channel_)
+                            o.LINKED_CHANNELS_ID = ":".join(channels)
+                            if not o.LINKED_CHANNELS_ID:
+                                o.LINKED_CHANNELS_ID = None
                             db.add(o)
                             db.commit()
-                for o in db.query(GUILDS).all():
-                    if channel_ in o.LINKED_CHANNELS_ID:
-                        channels = o.LINKED_CHANNELS_ID.split(":")
-                        channels.remove(channel_)
-                        o.LINKED_CHANNELS_ID = ":".join(channels)
-                        if not o.LINKED_CHANNELS_ID:
-                            o.LINKED_CHANNELS_ID = None
-                        db.add(o)
-                        db.commit()
+                db.delete(db.get(LINKED, channel_))
+                db.commit()
     if db.get(LINKED, channel) and guild_id in \
             [str((bot.get_channel(int(channel_))).guild.id) for channel_ in \
              (db.get(LINKED, channel).LINKED_CHANNELS_ID).split(":")]:
@@ -306,8 +392,8 @@ async def link_guild(ctx,
                                        view=link_channel_request())
         embed = discord.Embed(title="` ЗАПРОС ОТПРАВЛЕН! `",
                               description=f"**Приглашение на присоединение \n"
-                                          f"сервера **` {other_guild.name} `** к \n"
-                                          f"общему каналу <#{channel}>\n"
+                                          f"сервера **` {other_guild.name} `**\n"
+                                          f"к общему каналу <#{channel}>\n"
                                           f"отправлено успешно!\n"
                                           f"(Отправлено в канал <#{other_guild_channel.id}>)\n\n"
                                           f"__Пожалуйста, ожидайте принятия приглашения.__**",
@@ -332,14 +418,30 @@ async def link_telegram(ctx,
                         group_id: Option(str, description="Введите id телеграм-группы: ", required=True),
                         channel_id: Option(str, description="Введите id канала, который станет общим чатом: ",
                                            required=True)):
+    guild_id = str(ctx.guild.id)
     error_message_embed = discord.Embed(title='**` ОШИБКА `**',
                                         description="Проверьте правильность введённых данных,\n"
-                                                    "а так же убедитесь в том, что [**__RotexBot__**](https://t.me/R7Bot_bot):\n"
+                                                    "а также убедитесь в том, что [**__RotexBot__**](https://t.me/R7Bot_bot):\n"
                                                     "установлен в целевой телеграм-группе!\n\n"
                                                     "__Подробнее в:__ `/help link_telegram `",
                                         color=0xff0000)
     if not db.get(GROUPS, group_id) or not bot.get_channel(int(channel_id)):
         await ctx.respond(embed=error_message_embed, ephemeral=True)
+        return
+
+    if db.get(GUILDS, guild_id).TG_LINKED_CHANNELS_ID and \
+            len(db.get(GUILDS, guild_id).TG_LINKED_CHANNELS_ID.split(':')) >= 3:
+        embed = discord.Embed(title="**` ОШИБКА! `**",
+                              description=f"**` У вас уже есть 3 общих чатов с другими тг-группами! `**\n"
+                                          f"**Максимальное количество каналов для одного сервера,\n"
+                                          f"связанных с другими телеграм-группами сотавляет __3 канала__.\n"
+                                          f"Отвяжите один из 3 каналов, уже связанных с телеграмом\n"
+                                          f"если хотите привязать новый!\n"
+                                          f"Отвязать телеграм группу:** `/unlink_telegram`\n\n"
+                                          f"__*(Информация о всех общих чатах: /serverinfo)*__",
+                              color=0xff0000)
+        await ctx.respond(embed=embed, ephemeral=True)
+        return
     if db.get(GROUPS, group_id).LINKED_CHANNEL_ID:
         embed = discord.Embed(title='**` ОШИБКА `**',
                               description='Данная телеграм группа уже связана с дискород сервером!\n'
@@ -348,8 +450,16 @@ async def link_telegram(ctx,
                               color=0xff0000)
         await ctx.respond(embed=embed, delete_after=30.0, ephemeral=True)
         return
-    if db.get(GUILDS, str(ctx.guild.id)).TG_LINKED_CHANNELS_ID and \
-            channel_id in db.get(GUILDS, str(ctx.guild.id)).TG_LINKED_CHANNELS_ID.split(':'):
+    if db.get(GUILDS, guild_id).LINKED_CHANNELS_ID and \
+            channel_id in db.get(GUILDS, guild_id).LINKED_CHANNELS_ID.split(":"):
+        embed = discord.Embed(title='**` ОШИБКА `**',
+                              description='Выбранный канал уже связан с дискород сервером!\n'
+                                          'Пожалуйста, выберите другой канал!',
+                              color=0xff0000)
+        await ctx.respond(embed=embed, delete_after=30.0, ephemeral=True)
+        return
+    if db.get(GUILDS, guild_id).TG_LINKED_CHANNELS_ID and \
+            channel_id in db.get(GUILDS, guild_id).TG_LINKED_CHANNELS_ID.split(':'):
         embed = discord.Embed(title='**` ОШИБКА `**',
                               description='Выбранный дискорд канал уже связан с телеграм группой!\n'
                                           'Выберите другой канал, или отвяжите телеграм-группу\n'
@@ -359,11 +469,11 @@ async def link_telegram(ctx,
         return
     else:
         try:
-            tg_message = f"⸨ СИСТЕМНОЕ СООБЩЕНИЕ ⸩\n\n" \
+            tg_message = f"〔〔 СИСТЕМНОЕ СООБЩЕНИЕ 〕〕\n\n" \
                          f"Дискорд сервер «{ctx.guild.name}»\n" \
                          f"приглашает ваш Telegram канал создать общий чат!\n" \
                          f"Чтобы завершить создание общего канала, введите:\n\n" \
-                         f"/discord {ctx.guild.id}\n"
+                         f"/discord {guild_id}\n"
             url = f"https://api.telegram.org/bot{TG_TOKEN}"
             method = url + "/sendMessage"
             r = requests.post(method, data={
@@ -373,7 +483,7 @@ async def link_telegram(ctx,
             if r.status_code != 200:
                 raise Exception("ЕГГОР! Код НЕ 200!")
 
-            guild_object = db.get(GUILDS, str(ctx.guild.id))
+            guild_object = db.get(GUILDS, guild_id)
             guild_object.TG_LINK_WATING_GROUP_ID = group_id
             guild_object.TG_LINK_WATING_CHANNEL_ID = channel_id
             db.add(guild_object)
@@ -391,7 +501,7 @@ async def link_telegram(ctx,
             embed = discord.Embed(title="**` ЗАПРОС ОТПРАВЛЕН УСПЕШНО! `**",
                                   description=f"**Чтобы завершить установку соединения, пожалуйста,\n"
                                               f"введите в телеграм-группе следующую команду:**\n\n"
-                                              f"`/discord {ctx.guild.id}`",
+                                              f"`/discord {guild_id}`",
                                   colour=0x00BF32)
             await ctx.respond(embed=embed)
         except Exception as e:
@@ -423,24 +533,13 @@ async def unlink_telegram(ctx,
         await ctx.respond(embed=embed, delete_after=15.0, ephemeral=True)
 
 
-@bot.slash_command(name='test', description='Да, это тест.')
-async def test(ctx):
-    await ctx.respond('Да, это тест!')
-
-
-@bot.slash_command(name='help', description='обзор фукнционала бота')
-async def help(ctx):
-    embed_text = discord.Embed(title=f"` Список доступных команд `", description=COMMAND_LIST, color=0x1e1f22)
-    await ctx.respond(embed=embed_text)
-
-
 @bot.command()
 async def hey(ctx):
     await ctx.reply(f"I am alive!", mention_author=False)
 
 
 @bot.command()
-@discord.ext.commands.has_guild_permissions(moderate_members=True)
+@discord.ext.commands.has_guild_permissions(manage_messages=True)
 async def clear(ctx, limit):
     limit = int(limit) + 1
     embed = discord.Embed(title=f"Очищено `{limit - 1}` сообщений в <#{ctx.channel.id}>:", color=0xff0000,
@@ -451,7 +550,7 @@ async def clear(ctx, limit):
 
 
 @bot.command()
-@discord.ext.commands.has_guild_permissions(moderate_members=True)
+@discord.ext.commands.has_guild_permissions(mute_members=True)
 async def mute(ctx, member: discord.Member, time, *reason):
     if not reason:
         reason = ['не указана.']
@@ -508,7 +607,7 @@ async def mute(ctx, member: discord.Member, time, *reason):
 
 
 @bot.command()
-@discord.ext.commands.has_guild_permissions(moderate_members=True)
+@discord.ext.commands.has_guild_permissions(mute_members=True)
 async def unmute(ctx, member: discord.Member):
     time = 0
     until = (datetime.datetime.utcnow() + datetime.timedelta(minutes=time))
@@ -538,12 +637,12 @@ async def id(ctx):
                                            f'**```ansi\n[2;34m ID текущего канала: [0m\n```**\n'
                                            f'`{ctx.channel.id}`\n'
                                            f'**```ansi\n[2;34m ID всех текстовых каналов: [0m\n```**',
-                               color=0x2b2d31)
+                               color=0x1e1f22)
     await ctx.respond(embed=main_embed)
     for short_ids_list in ids_list:
         embed = discord.Embed(title=short_ids_list[0],
                               description="\n".join(short_ids_list[1:]),
-                              color=0x2b2d31)
+                              color=0x1e1f22)
         await ctx.send(embed=embed)
 
 
@@ -552,18 +651,67 @@ async def stats(ctx, member: Option(discord.Member, description="Выберит�
     if not member:
         member = ctx.author
     if member.raw_status in "dnd,idle,invisible,online":
-        status = 'В сети'
+        status = "В сети"
     else:
-        status = 'Не в сети'
+        status = "Не в сети"
+    if member.activity:
+        user_activity = member.activity.name
+    else:
+        user_activity = 'Отсутствует'
     embed = discord.Embed(title=f"Статистика пользователя", description=f"", color=0x1e1f22)
-    embed.add_field(name="`Статус:`", value=f"{status}", inline=False)
-    embed.add_field(name="`Аккаунт создан:`", value=f"{member.created_at.strftime('%Y.%m.%d - %H:%M')}", inline=False)
-    embed.add_field(name="`Присоединился к серверу`", value=f"{member.joined_at.strftime('%Y.%m.%d - %H:%M')}",
+    embed.add_field(name="**`Статус:`**", value=f"{status}", inline=False)
+    embed.add_field(name="**`Активность:`**", value=f"{user_activity}", inline=False)
+    embed.add_field(name="**`Аккаунт создан:`**", value=f"{member.created_at.strftime('%Y.%m.%d - %H:%M')}",
+                    inline=False)
+    embed.add_field(name="**`Присоединился к серверу`**", value=f"{member.joined_at.strftime('%Y.%m.%d - %H:%M')}",
                     inline=False)
     embed.set_author(name=f"{member}", icon_url=member.avatar)
     embed.set_thumbnail(url=member.avatar)
     embed.set_footer(text=f'Статистика предоставлена по запросу {ctx.author}')
     await ctx.respond(embed=embed)
+
+
+@bot.slash_command(name='serverinfo', description='Просмотреть статистику сервера, включая cross-server чаты')
+async def serverinfo(ctx):
+    guild_id = str(ctx.guild.id)
+    tg_linked_channels = ['**```ansi\n[2;34m Каналы, связаныне с телеграм-группами [0m\n```**']
+    ds_linked_channels = ['**```ansi\n[2;34m Каналы, связанные с дискорд-серверами [0m\n```**']
+    if db.get(GUILDS, guild_id).LINKED_CHANNELS_ID:
+        for channel in db.get(GUILDS, guild_id).LINKED_CHANNELS_ID.split(':'):
+            channels = []
+            for channel_id in db.get(LINKED, channel).LINKED_CHANNELS_ID.split(':'):
+                channels.append(f"` {channel_id} ({bot.get_channel(int(channel_id)).guild.name})`")
+            channels = "\n".join(channels)
+            ds_linked_channels.append(f'<#{channel}>  —  **Привязанные каналы:**\n{channels}')
+    else:
+        ds_linked_channels.append('**` Отсутствуют. `**')
+    if db.get(GUILDS, guild_id).TG_LINKED_CHANNELS_ID:
+        for channel in db.get(GUILDS, guild_id).TG_LINKED_CHANNELS_ID.split(':'):
+            tg_linked_channels.append(
+                f'<#{channel}>  —  Id тг-группы: **`{db.get(TG_LINKED, channel).LINKED_CHANNEL_ID}`**')
+    else:
+        tg_linked_channels.append('**` Отсутствуют. `**')
+    tg_linked_channels = "\n".join(tg_linked_channels)
+    ds_linked_channels = "\n".join(ds_linked_channels)
+    embed = discord.Embed(title=f"**` Статистика сервера `**",
+                          description=f"**```ansi\n[2;34m {ctx.guild.name} [0m\n```**\n"
+                                      f"**Id сервера**  —  `{ctx.guild.id}`\n"
+                                      f"**Создан**  —  `{ctx.guild.created_at.strftime('%Y.%m.%d - %H:%M')}`\n"
+                                      f"**Владелец**  —  <@{ctx.guild.owner_id}>\n\n"
+                                      f"**Участников**  —  `{ctx.guild.member_count}`\n"
+                                      f"**Каналов**  —  `{len(ctx.guild.channels)}`\n"
+                                      f"**Ролей**  —  `{len(ctx.guild.roles)}`\n"
+                                      f"**Бустов**  —  {ctx.guild.premium_subscription_count}\n\n"
+                                      f"{tg_linked_channels}\n\n"
+                                      f"{ds_linked_channels}",
+                          color=0x1e1f22)
+    embed.set_thumbnail(url=ctx.guild.icon.url)
+    await ctx.respond(embed=embed)
+    # for channels in [tg_linked_channels, ds_linked_channels]:
+    #     embed = discord.Embed(title=channels[0],
+    #                           description="\n".join(channels[1:]),
+    #                           color=0x1e1f22)
+    #     await ctx.channel.send(embed=embed)
 
 
 @bot.slash_command(name='weather', description='Узнать прогноз погоды в выбранном городе')
@@ -659,8 +807,15 @@ class link_channel_request(discord.ui.View):
 
     @discord.ui.button(label="Присоединиться", style=discord.ButtonStyle.green)
     async def green_button(self, button: discord.ui.Button, interaction: discord.Interaction):
-        modal = link_channel_request_modal(title="Присоединение к общему каналу")
-        await interaction.response.send_modal(modal)
+        if interaction.user.guild_permissions.administrator:
+            modal = link_channel_request_modal(title="Присоединение к общему каналу")
+            await interaction.response.send_modal(modal)
+        else:
+            embed = discord.Embed(title="**` ОШИБКА `**",
+                                  description=f"**Вам необходимо обладать правами\n"
+                                              f"администратора, чтобы сделать это!**",
+                                  color=0xff0000)
+            await interaction.response.send_message(embed=embed, view=None, delete_after=7.0, ephemeral=True)
 
 
 class link_channel_request_modal(discord.ui.Modal):
@@ -699,7 +854,18 @@ class is_link_channel_id_correct(discord.ui.View):
         another_guild_object = db.get(GUILDS, str(another_guild_id))
         guild_object = db.get(GUILDS, str(interaction.guild.id))
         channel_id = interaction.message.embeds[0].footer.text.split('|')[1]
-
+        if db.get(GUILDS, str(interaction.message.guild.id)).LINKED_CHANNELS_ID and \
+                len(db.get(GUILDS, str(interaction.message.guild.id)).LINKED_CHANNELS_ID.split(':')) >= 3:
+            embed = discord.Embed(title="**` ОШИБКА! `**",
+                                  description=f"**` У вас уже есть 3 общих чата с другими серверами! `**\n"
+                                              f"**Максимальное количество каналов для одного сервера,\n"
+                                              f"связанных с другими дискорд серверами сотавляет __3 канала__.\n"
+                                              f"Удалите один из 3 cross-server каналов,\n"
+                                              f"если хотите привязать новый!**\n\n"
+                                              f"__*(Информация о всех общих чатах: /serverinfo)*__",
+                                  color=0xff0000)
+            await interaction.response.edit_message(embed=embed, view=None)
+            return
         if not db.get(GUILDS, str(another_guild_id)).LINK_WAITING_CHANNEL_ID:
             embed = discord.Embed(title="**` ОШИБКА `**",
                                   description=f"**Вы уже приняли запрос от ** ` {bot.get_guild(another_guild_id).name} `\n"
@@ -714,6 +880,15 @@ class is_link_channel_id_correct(discord.ui.View):
                                               f"Пожалуйста, выберите другой канал или\n откажитесь от присоединения!**",
                                   color=0xff0000)
             await interaction.response.edit_message(embed=embed, view=None, delete_after=7.0)
+            return
+        if db.get(GUILDS, interaction.guild_id).TG_LINKED_CHANNELS_ID and \
+                channel_id in db.get(GUILDS, interaction.guild_id).TG_LINKED_CHANNELS_ID.split(':'):
+            embed = discord.Embed(title='**` ОШИБКА `**',
+                                  description='Выбранный дискорд канал уже связан с телеграм группой!\n'
+                                              'Выберите другой канал, или отвяжите телеграм-группу\n'
+                                              'от канала с помощью команды `/unlink_telegram`!',
+                                  color=0xff0000)
+            await interaction.response.edit_message(embed=embed, delete_after=30.0, view=None)
             return
 
         if another_guild_object.LINKED_CHANNELS_ID:
@@ -862,8 +1037,8 @@ async def on_ready():
 
 @bot.event
 async def on_guild_join(guild):
-    if not db.get(GUILDS, guild.id):
-        GUILD = GUILDS(GUILD_ID=guild.id)
+    if not db.get(GUILDS, str(guild.id)):
+        GUILD = GUILDS(GUILD_ID=str(guild.id))
         db.add(GUILD)
         db.commit()
     print('бот стал членом гильдии:  ', guild.id)
@@ -872,6 +1047,55 @@ async def on_guild_join(guild):
 
 @bot.event
 async def on_guild_remove(guild):
+    if db.get(GUILDS, str(guild.id)):
+        GUILD = db.get(GUILDS, str(guild.id))
+        if GUILD.LINKED_CHANNELS_ID:
+            for channel in GUILD.LINKED_CHANNELS_ID.split(':'):
+                if not bot.get_channel(int(channel)):
+                    for linked_channel_id in db.get(LINKED, channel).LINKED_CHANNELS_ID.split(':'):
+                        linked_channel = db.get(LINKED, linked_channel_id)
+                        channels = linked_channel.LINKED_CHANNELS_ID.split(":")
+                        channels.remove(channel)
+                        linked_channel.LINKED_CHANNELS_ID = ":".join(channels)
+                        if not linked_channel.LINKED_CHANNELS_ID:
+                            db.delete(linked_channel)
+                        else:
+                            db.add(linked_channel)
+                        db.commit()
+                        for o in db.query(GUILDS).all():
+                            if o.LINKED_CHANNELS_ID and linked_channel_id in o.LINKED_CHANNELS_ID:
+                                if not db.get(LINKED, linked_channel_id):
+                                    channels = o.LINKED_CHANNELS_ID.split(":")
+                                    channels.remove(linked_channel_id)
+                                    o.LINKED_CHANNELS_ID = ":".join(channels)
+                                    if not o.LINKED_CHANNELS_ID:
+                                        o.LINKED_CHANNELS_ID = None
+                                    db.add(o)
+                                    db.commit()
+                            if o.LINKED_CHANNELS_ID and channel in o.LINKED_CHANNELS_ID:
+                                channels = o.LINKED_CHANNELS_ID.split(":")
+                                channels.remove(channel)
+                                o.LINKED_CHANNELS_ID = ":".join(channels)
+                                if not o.LINKED_CHANNELS_ID:
+                                    o.LINKED_CHANNELS_ID = None
+                                db.add(o)
+                                db.commit()
+                    db.delete(db.get(LINKED, channel))
+                    db.commit()
+        if GUILD.TG_LINKED_CHANNELS_ID:
+            for channel in db.get(GUILDS, str(guild.id)).TG_LINKED_CHANNELS_ID.split(':'):
+                if db.get(WEBHOOKS, channel):
+                    db.delete(db.get(WEBHOOKS, channel))
+                if db.get(TG_LINKED, channel):
+                    group_object = db.get(GROUPS, (db.get(TG_LINKED, channel).LINKED_CHANNEL_ID))
+                    group_object.LINKED_CHANNEL_ID = None
+                    db.add(group_object)
+                    db.delete(db.get(TG_LINKED, (db.get(TG_LINKED, channel).LINKED_CHANNEL_ID)))
+                    db.delete(db.get(TG_LINKED, channel))
+                db.commit()
+        db.delete(GUILD)
+        db.commit()
+
     print('бот покинул гильдию:  ', guild.id)
     pass
 

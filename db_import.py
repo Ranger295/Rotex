@@ -16,7 +16,6 @@ class Base(DeclarativeBase):
 class GUILDS(Base):
     __tablename__ = "GUILDS_DATA"
     GUILD_ID = Column(String, primary_key=True, index=True)
-    AUDIT_LOG_CHANNEL_ID = Column(Text)
     LINKED_CHANNELS_ID = Column(Text)
     TG_LINKED_CHANNELS_ID = Column(Text)
     LINK_WAITING_CHANNEL_ID = Column(Text)
