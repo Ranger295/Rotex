@@ -2,5 +2,5 @@
 echo ""
 echo "Please, wait for a while"
 echo "The application is starting..."
-Python discord_bot.py &
-Python telegram_bot.py &
+python discord_bot.py &
+python telegram_bot.py &

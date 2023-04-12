@@ -228,7 +228,7 @@ async def on_message(message):
         try:
             avatar = bot.user.avatar
             name = bot.user.name
-            embeds_data = json.loads(f"[{message.content[7:]}]")
+            embeds_data = json.loads(f"[{message.content[7:]}]", strict=False)
             embeds = []
             embed_index = 0
             for embed_dict in embeds_data:
