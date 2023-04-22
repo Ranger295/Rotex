@@ -252,12 +252,12 @@ async def resend(message: types.Message):
         try:
             text = None
             files = []
-            file_size_error = 'Вложение не было доставлено в дискорд канал из за превышения допустимого размера(8Mb)'
+            file_size_error = 'Вложение не было доставлено в дискорд канал из за превышения допустимого размера(25Mb)'
 
             if message.text:
                 text = message.text
             if message.voice:
-                if message.voice.file_size >= 8388608:
+                if message.voice.file_size >= 26214400:
                     respond = await message.reply(file_size_error)
                     await sleep(15)
                     await respond.delete()
@@ -266,7 +266,7 @@ async def resend(message: types.Message):
                     await bot.download_file(file.file_path, f'tempdata/voice_message.mp3')
                     files.append(discord.File('tempdata/voice_message.mp3'))
             elif message.audio:
-                if message.audio.file_size >= 8388608:
+                if message.audio.file_size >= 26214400:
                     respond = await message.reply(file_size_error)
                     await sleep(15)
                     await respond.delete()
@@ -276,7 +276,7 @@ async def resend(message: types.Message):
                     files.append(discord.File(f'tempdata/{message.audio.title}.mp3'))
                 text = message.caption
             elif message.photo:
-                if message.photo[-1]['file_size'] >= 8388608:
+                if message.photo[-1]['file_size'] >= 26214400:
                     respond = await message.reply(file_size_error)
                     await sleep(15)
                     await respond.delete()
@@ -288,7 +288,7 @@ async def resend(message: types.Message):
                         discord.File(f'tempdata/{message.photo[-1].file_unique_id}.{file.file_path.split(".")[-1]}'))
                 text = message.caption
             elif message.video:
-                if message.video.file_size >= 8388608:
+                if message.video.file_size >= 26214400:
                     respond = await message.reply(file_size_error)
                     await sleep(15)
                     await respond.delete()
@@ -298,7 +298,7 @@ async def resend(message: types.Message):
                     files.append(discord.File(f'tempdata/{message.video.file_name}'))
                 text = message.caption
             elif message.video_note:
-                if message.video_note.file_size >= 8388608:
+                if message.video_note.file_size >= 26214400:
                     respond = await message.reply(file_size_error)
                     await sleep(15)
                     await respond.delete()
@@ -309,7 +309,7 @@ async def resend(message: types.Message):
                     files.append(discord.File(
                         f'tempdata/videomessage_from_{message.from_user.first_name}.{file.file_path.split(".")[-1]}'))
             elif message.animation:
-                if message.animation.file_size >= 8388608:
+                if message.animation.file_size >= 26214400:
                     respond = await message.reply(file_size_error)
                     await sleep(15)
                     await respond.delete()
@@ -320,7 +320,7 @@ async def resend(message: types.Message):
                         files.append(discord.File(f'tempdata/{message.animation.file_name}'))
                 text = message.caption
             elif message.document:
-                if message.document.file_size >= 8388608:
+                if message.document.file_size >= 26214400:
                     respond = await message.reply(file_size_error)
                     await sleep(15)
                     await respond.delete()
@@ -330,7 +330,7 @@ async def resend(message: types.Message):
                     files.append(discord.File(f'tempdata/{message.document.file_name}'))
                 text = message.caption
             elif message.sticker:
-                if message.sticker.file_size >= 8388608:
+                if message.sticker.file_size >= 26214400:
                     respond = await message.reply(file_size_error)
                     await sleep(15)
                     await respond.delete()
